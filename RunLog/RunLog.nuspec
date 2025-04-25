@@ -4,7 +4,7 @@
     <id>$id$</id>
     <version>$version$</version>
     <title>$title$</title>
-    <authors>$author$</authors>
+    <authors>aturpin0504</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <license type="expression">MIT</license>
     <!-- <icon>icon.png</icon> -->
@@ -13,5 +13,9 @@
     <releaseNotes>Initial release with support for console and file logging, log enrichment, and rolling file logs.</releaseNotes>
     <copyright>$copyright$</copyright>
     <tags>logging diagnostics .NET</tags>
+    <readme>README.md</readme>
   </metadata>
+  <files>
+    <file src="..\README.md" target="README.md" />
+  </files>
 </package>
