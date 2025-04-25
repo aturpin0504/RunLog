@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
 [assembly: AssemblyTitle("RunLog")]
-[assembly: AssemblyDescription("A lightweight, customizable logging framework inspired by Serilog. It provides a fluent API for configuring loggers with various sinks, enrichers, and minimum log levels. The framework supports both contextual logging and structured log templates.")]
+[assembly: AssemblyDescription("RunLog is a lightweight and extensible logging library for .NET Framework 4.7.2, supporting multiple log levels, configurable sinks, and enrichers.")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyProduct("RunLog")]
