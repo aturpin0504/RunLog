@@ -1,110 +1,13 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace RunLog
 {
-    // Core logger class that will be the main entry point
-    public static class Log
-    {
-        /// <summary>
-        /// The main logger instance used throughout the application.
-        /// Set this property to configure the global logger.
-        /// </summary>
-        public static ILogger Logger { get; set; } = new EmptyLogger();
-
-        /// <summary>
-        /// Creates a new logger configuration that can be used to build a custom logger.
-        /// </summary>
-        /// <returns>A new LoggerConfiguration instance to configure log behavior.</returns>
-        /// <example>
-        /// <code>
-        /// var logger = Log.CreateConfiguration()
-        ///     .MinimumLevel.Information()
-        ///     .WriteTo.Console()
-        ///     .WriteTo.File("log.txt")
-        ///     .CreateLogger();
-        /// </code>
-        /// </example>
-        public static LoggerConfiguration CreateConfiguration() => new LoggerConfiguration();
-
-        /// <summary>
-        /// Closes and flushes the logger, ensuring all logs are written before application exit.
-        /// Should be called before application shutdown.
-        /// </summary>
-        public static void CloseAndFlush()
-        {
-            Logger.Dispose();
-        }
-
-        /// <summary>
-        /// Creates a logger that enriches log events with the specified type name.
-        /// </summary>
-        /// <typeparam name="T">The type to use as a source context.</typeparam>
-        /// <returns>A logger that adds the type name as a property named "SourceContext".</returns>
-        public static ILogger ForContext<T>() => Logger.ForContext<T>();
-
-        /// <summary>
-        /// Creates a logger that enriches log events with the specified context name.
-        /// </summary>
-        /// <param name="context">The context name to add to log events.</param>
-        /// <returns>A logger that adds the context name as a property named "SourceContext".</returns>
-        public static ILogger ForContext(string context) => Logger.ForContext(context);
-
-        /// <summary>
-        /// Writes a debug log event with the specified message template.
-        /// </summary>
-        /// <param name="messageTemplate">The message template containing property placeholders.</param>
-        /// <param name="propertyValues">Values for the message template properties.</param>
-        public static void Debug(string messageTemplate, params object[] propertyValues) =>
-            Logger.Write(LogLevel.Debug, messageTemplate, propertyValues);
-
-        /// <summary>
-        /// Writes an information log event with the specified message template.
-        /// </summary>
-        /// <param name="messageTemplate">The message template containing property placeholders.</param>
-        /// <param name="propertyValues">Values for the message template properties.</param>
-        public static void Information(string messageTemplate, params object[] propertyValues) =>
-            Logger.Write(LogLevel.Information, messageTemplate, propertyValues);
-
-        /// <summary>
-        /// Writes a warning log event with the specified message template.
-        /// </summary>
-        /// <param name="messageTemplate">The message template containing property placeholders.</param>
-        /// <param name="propertyValues">Values for the message template properties.</param>
-        public static void Warning(string messageTemplate, params object[] propertyValues) =>
-            Logger.Write(LogLevel.Warning, messageTemplate, propertyValues);
-
-        /// <summary>
-        /// Writes an error log event with the specified message template.
-        /// </summary>
-        /// <param name="messageTemplate">The message template containing property placeholders.</param>
-        /// <param name="propertyValues">Values for the message template properties.</param>
-        public static void Error(string messageTemplate, params object[] propertyValues) =>
-            Logger.Write(LogLevel.Error, messageTemplate, propertyValues);
-
-        /// <summary>
-        /// Writes an error log event with an exception and the specified message template.
-        /// </summary>
-        /// <param name="exception">The exception to include in the log event.</param>
-        /// <param name="messageTemplate">The message template containing property placeholders.</param>
-        /// <param name="propertyValues">Values for the message template properties.</param>
-        public static void Error(Exception exception, string messageTemplate, params object[] propertyValues) =>
-            Logger.Write(LogLevel.Error, exception, messageTemplate, propertyValues);
-
-        public static void Fatal(string messageTemplate, params object[] propertyValues) =>
-            Logger.Write(LogLevel.Fatal, messageTemplate, propertyValues);
-
-        public static void Fatal(Exception exception, string messageTemplate, params object[] propertyValues) =>
-            Logger.Write(LogLevel.Fatal, exception, messageTemplate, propertyValues);
-
-        public static void Verbose(string messageTemplate, params object[] propertyValues) =>
-            Logger.Write(LogLevel.Verbose, messageTemplate, propertyValues);
-
-    }
-
-    // Log levels
     public enum LogLevel
     {
         Verbose,
@@ -115,467 +18,764 @@ namespace RunLog
         Fatal
     }
 
-    // Interfaces
-    public interface ILogger : IDisposable
+    public class LogEvent
     {
-        ILogger ForContext<T>();
-        ILogger ForContext(string context);
-        void Write(LogLevel level, string messageTemplate, params object[] propertyValues);
-        void Write(LogLevel level, Exception exception, string messageTemplate, params object[] propertyValues);
+        public DateTime Timestamp { get; set; }
+        public LogLevel Level { get; set; }
+        public string MessageTemplate { get; set; }
+        public string RenderedMessage { get; set; }
+        public Exception Exception { get; set; }
+        public Dictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
     }
 
-    public interface ILogSink : IDisposable
+    public interface ILogEventSink
     {
         void Emit(LogEvent logEvent);
     }
 
-    // Logger Configuration
     public class LoggerConfiguration
     {
-        private readonly List<ILogSink> _sinks = new List<ILogSink>();
-        private readonly List<ILogEnricher> _enrichers = new List<ILogEnricher>();
-        private LogLevel _minimumLevel = LogLevel.Information;
+        internal LogLevel MinimumLevelValue { get; private set; } = LogLevel.Information;
+        internal List<ILogEventSink> SinksList { get; } = new List<ILogEventSink>();
+        internal Dictionary<string, object> Enrichers { get; } = new Dictionary<string, object>();
 
-        public MinimumLevelConfiguration MinimumLevel => new MinimumLevelConfiguration(this);
-        public SinkConfiguration WriteTo => new SinkConfiguration(this);
-        public EnrichConfiguration Enrich => new EnrichConfiguration(this);
-
-        internal void AddSink(ILogSink sink)
+        public LoggerConfiguration SetMinimumLevel(LogLevel minimumLevel)
         {
-            _sinks.Add(sink);
+            MinimumLevelValue = minimumLevel;
+            return this;
         }
 
-        internal void AddEnricher(ILogEnricher enricher)
+        public LoggerConfiguration AddSink(ILogEventSink sink)
         {
-            _enrichers.Add(enricher);
+            SinksList.Add(sink);
+            return this;
         }
 
-        internal void SetMinimumLevel(LogLevel level)
+        public LoggerConfiguration Enrich(string propertyName, object value)
         {
-            _minimumLevel = level;
+            Enrichers[propertyName] = value;
+            return this;
         }
 
-        public ILogger CreateLogger()
+        public Logger CreateLogger()
         {
-            // Create logger with the configured settings
-            var logger = new Logger(_sinks, _enrichers, _minimumLevel);
-            return logger;
-        }
-    }
-
-    // Minimum level configuration
-    public class MinimumLevelConfiguration
-    {
-        private readonly LoggerConfiguration _loggerConfiguration;
-
-        public MinimumLevelConfiguration(LoggerConfiguration loggerConfiguration)
-        {
-            _loggerConfiguration = loggerConfiguration;
+            return new Logger(
+                MinimumLevelValue,
+                SinksList,
+                Enrichers);
         }
 
-        public LoggerConfiguration Verbose()
+        public class SinkConfiguration
         {
-            _loggerConfiguration.SetMinimumLevel(LogLevel.Verbose);
-            return _loggerConfiguration;
-        }
+            private readonly LoggerConfiguration _parent;
 
-        public LoggerConfiguration Debug()
-        {
-            _loggerConfiguration.SetMinimumLevel(LogLevel.Debug);
-            return _loggerConfiguration;
-        }
-
-        public LoggerConfiguration Information()
-        {
-            _loggerConfiguration.SetMinimumLevel(LogLevel.Information);
-            return _loggerConfiguration;
-        }
-
-        public LoggerConfiguration Warning()
-        {
-            _loggerConfiguration.SetMinimumLevel(LogLevel.Warning);
-            return _loggerConfiguration;
-        }
-
-        public LoggerConfiguration Error()
-        {
-            _loggerConfiguration.SetMinimumLevel(LogLevel.Error);
-            return _loggerConfiguration;
-        }
-
-        public LoggerConfiguration Fatal()
-        {
-            _loggerConfiguration.SetMinimumLevel(LogLevel.Fatal);
-            return _loggerConfiguration;
-        }
-    }
-
-    // Sink configuration
-    public class SinkConfiguration
-    {
-        private readonly LoggerConfiguration _loggerConfiguration;
-
-        public SinkConfiguration(LoggerConfiguration loggerConfiguration)
-        {
-            _loggerConfiguration = loggerConfiguration;
-        }
-
-        public LoggerConfiguration Console(string outputTemplate = "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Message}{NewLine}{Exception}")
-        {
-            _loggerConfiguration.AddSink(new ConsoleSink(outputTemplate));
-            return _loggerConfiguration;
-        }
-
-        public LoggerConfiguration File(string path,
-            RollingInterval rollingInterval = RollingInterval.Day,
-            string outputTemplate = "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
-        {
-            _loggerConfiguration.AddSink(new FileSink(path, rollingInterval, outputTemplate));
-            return _loggerConfiguration;
-        }
-    }
-
-    // Enrich configuration
-    public class EnrichConfiguration
-    {
-        private readonly LoggerConfiguration _loggerConfiguration;
-
-        public EnrichConfiguration(LoggerConfiguration loggerConfiguration)
-        {
-            _loggerConfiguration = loggerConfiguration;
-        }
-
-        public LoggerConfiguration WithProperty(string name, object value)
-        {
-            _loggerConfiguration.AddEnricher(new PropertyEnricher(name, value));
-            return _loggerConfiguration;
-        }
-
-        public LoggerConfiguration WithMachineName()
-        {
-            _loggerConfiguration.AddEnricher(new MachineNameEnricher());
-            return _loggerConfiguration;
-        }
-    }
-
-    // Concrete logger implementation
-    public class Logger : ILogger
-    {
-        private readonly List<ILogSink> _sinks;
-        private readonly List<ILogEnricher> _enrichers;
-        private readonly LogLevel _minimumLevel;
-        private readonly Dictionary<string, object> _properties;
-
-        public Logger(List<ILogSink> sinks, List<ILogEnricher> enrichers, LogLevel minimumLevel, Dictionary<string, object> properties = null)
-        {
-            _sinks = new List<ILogSink>(sinks);
-            _enrichers = new List<ILogEnricher>(enrichers);
-            _minimumLevel = minimumLevel;
-            _properties = properties ?? new Dictionary<string, object>();
-        }
-
-        public ILogger ForContext<T>()
-        {
-            return ForContext(typeof(T).Name);
-        }
-
-        public ILogger ForContext(string context)
-        {
-            var contextProperties = new Dictionary<string, object>(_properties);
-            contextProperties["SourceContext"] = context;
-            return new Logger(_sinks, _enrichers, _minimumLevel, contextProperties);
-        }
-
-        public void Write(LogLevel level, string messageTemplate, params object[] propertyValues)
-        {
-            Write(level, null, messageTemplate, propertyValues);
-        }
-
-        public void Write(LogLevel level, Exception exception, string messageTemplate, params object[] propertyValues)
-        {
-            try
+            internal SinkConfiguration(LoggerConfiguration parent)
             {
-                if (level < _minimumLevel)
-                    return;
-
-                if (messageTemplate == null)
-                {
-                    messageTemplate = exception?.Message ?? string.Empty;
-                }
-
-                var properties = new Dictionary<string, object>(_properties);
-
-                // Add standard properties
-                if (!properties.ContainsKey("Timestamp"))
-                    properties["Timestamp"] = DateTimeOffset.Now;
-
-                // Process property values from the message template
-                var processedMessage = ProcessMessageTemplate(messageTemplate, propertyValues, properties);
-
-                var logEvent = new LogEvent(
-                    level,
-                    processedMessage,
-                    exception,
-                    properties
-                );
-
-                // Apply enrichers
-                try
-                {
-                    foreach (var enricher in _enrichers)
-                    {
-                        if (enricher != null)
-                        {
-                            enricher.Enrich(logEvent);
-                        }
-                    }
-                }
-                catch (Exception enricherEx)
-                {
-                    // If enrichers fail, add a note to the log but continue processing
-                    Console.Error.WriteLine($"Error applying enrichers: {enricherEx.Message}");
-                }
-
-                // Emit to all sinks
-                var emitExceptions = new List<Exception>();
-                foreach (var sink in _sinks)
-                {
-                    if (sink == null) continue;
-
-                    try
-                    {
-                        sink.Emit(logEvent);
-                    }
-                    catch (Exception sinkEx)
-                    {
-                        // Collect exceptions but don't let them stop other sinks
-                        emitExceptions.Add(sinkEx);
-                    }
-                }
-
-                // If any sinks failed, log to console as last resort
-                if (emitExceptions.Count > 0)
-                {
-                    Console.Error.WriteLine($"Failed to emit log event to {emitExceptions.Count} sinks. First error: {emitExceptions[0].Message}");
-                }
+                _parent = parent;
             }
-            catch (Exception ex)
+
+            public LoggerConfiguration Console(LogLevel restrictedToMinimumLevel = LogLevel.Verbose)
             {
-                // Avoid throwing from logging methods - last resort fallback
-                Console.Error.WriteLine($"Critical error in logger: {ex.Message}");
-                Console.Error.WriteLine($"Original message: {messageTemplate}");
-                Console.Error.WriteLine($"Original exception: {exception}");
+                return _parent.AddSink(new ConsoleSink(restrictedToMinimumLevel));
+            }
+
+            // First File overload (simplest version)
+            public LoggerConfiguration File(string path, LogLevel restrictedToMinimumLevel = LogLevel.Verbose)
+            {
+                // Now forwards to the full version with default buffering enabled
+                return File(
+                    path,
+                    restrictedToMinimumLevel,
+                    RollingInterval.Infinite,
+                    null,
+                    null,
+                    enableBuffering: true,
+                    bufferSize: 100,
+                    flushInterval: TimeSpan.FromSeconds(10),
+                    backgroundThread: true);
+            }
+
+            // Second File overload (with rolling options)
+            public LoggerConfiguration File(
+                string path,
+                LogLevel restrictedToMinimumLevel,
+                RollingInterval rollingInterval,
+                long? fileSizeLimitBytes = null,
+                int? retainedFileCountLimit = null)
+            {
+                // Now forwards to the full version with default buffering enabled
+                return File(
+                    path,
+                    restrictedToMinimumLevel,
+                    rollingInterval,
+                    fileSizeLimitBytes,
+                    retainedFileCountLimit,
+                    enableBuffering: true,
+                    bufferSize: 100,
+                    flushInterval: TimeSpan.FromSeconds(10),
+                    backgroundThread: true);
+            }
+
+            // New comprehensive File method that includes buffering options
+            public LoggerConfiguration File(
+                string path,
+                LogLevel restrictedToMinimumLevel = LogLevel.Verbose,
+                RollingInterval rollingInterval = RollingInterval.Infinite,
+                long? fileSizeLimitBytes = null,
+                int? retainedFileCountLimit = null,
+                bool enableBuffering = true,
+                int bufferSize = 100,
+                TimeSpan? flushInterval = null,
+                bool backgroundThread = true)
+            {
+                var sink = new FileSink(
+                    path,
+                    restrictedToMinimumLevel,
+                    rollingInterval,
+                    fileSizeLimitBytes,
+                    retainedFileCountLimit,
+                    enableBuffering,
+                    bufferSize,
+                    flushInterval,
+                    backgroundThread);
+
+                return _parent.AddSink(sink);
+            }
+
+            // Mark the BufferedFile methods as Obsolete
+            [Obsolete("Use File method with enableBuffering parameter instead")]
+            public LoggerConfiguration BufferedFile(
+                string path,
+                LogLevel restrictedToMinimumLevel = LogLevel.Verbose)
+            {
+                return File(
+                    path,
+                    restrictedToMinimumLevel,
+                    RollingInterval.Infinite,
+                    null,
+                    null,
+                    enableBuffering: true,
+                    bufferSize: 100,
+                    flushInterval: TimeSpan.FromSeconds(10),
+                    backgroundThread: true);
+            }
+
+            // Mark other BufferedFile overloads as Obsolete too
+            [Obsolete("Use File method with enableBuffering parameter instead")]
+            public LoggerConfiguration BufferedFile(
+                string path,
+                LogLevel restrictedToMinimumLevel = LogLevel.Verbose,
+                int bufferSize = 100,
+                TimeSpan? flushInterval = null,
+                bool backgroundThread = true)
+            {
+                return File(
+                    path,
+                    restrictedToMinimumLevel,
+                    RollingInterval.Infinite,
+                    null,
+                    null,
+                    enableBuffering: true,
+                    bufferSize: bufferSize,
+                    flushInterval: flushInterval,
+                    backgroundThread: backgroundThread);
+            }
+
+            [Obsolete("Use File method with enableBuffering parameter instead")]
+            public LoggerConfiguration BufferedFile(
+                string path,
+                LogLevel restrictedToMinimumLevel = LogLevel.Verbose,
+                RollingInterval rollingInterval = RollingInterval.Infinite,
+                long? fileSizeLimitBytes = null,
+                int? retainedFileCountLimit = null,
+                int bufferSize = 100,
+                TimeSpan? flushInterval = null,
+                bool backgroundThread = true)
+            {
+                return File(
+                    path,
+                    restrictedToMinimumLevel,
+                    rollingInterval,
+                    fileSizeLimitBytes,
+                    retainedFileCountLimit,
+                    enableBuffering: true,
+                    bufferSize: bufferSize,
+                    flushInterval: flushInterval,
+                    backgroundThread: backgroundThread);
             }
         }
 
-        private string ProcessMessageTemplate(string messageTemplate, object[] propertyValues, Dictionary<string, object> properties)
+        private SinkConfiguration _writeTo;
+        public SinkConfiguration WriteTo => _writeTo ?? (_writeTo = new SinkConfiguration(this));
+
+        public class LevelConfiguration
         {
-            // Add null check for the message template
-            if (messageTemplate == null)
+            private readonly LoggerConfiguration _parent;
+
+            internal LevelConfiguration(LoggerConfiguration parent)
             {
-                return string.Empty;
+                _parent = parent;
             }
 
-            try
+            public LoggerConfiguration Verbose()
             {
-                // Simple but effective parser for named properties
-                if (propertyValues != null && propertyValues.Length > 0)
-                {
-                    // Extract property names from the template
-                    var propertyNames = new List<string>();
-                    int tokenStart = -1;
-                    for (int i = 0; i < messageTemplate.Length; i++)
-                    {
-                        if (messageTemplate[i] == '{' && (i == 0 || messageTemplate[i - 1] != '\\'))
-                        {
-                            tokenStart = i + 1;
-                        }
-                        else if (messageTemplate[i] == '}' && tokenStart != -1)
-                        {
-                            // Guard against index out of range
-                            if (tokenStart < i)
-                            {
-                                string propertyName = messageTemplate.Substring(tokenStart, i - tokenStart);
-                                // Remove any format specifier
-                                int formatSpecifierPos = propertyName.IndexOf(':');
-                                if (formatSpecifierPos >= 0)
-                                    propertyName = propertyName.Substring(0, formatSpecifierPos);
-
-                                propertyNames.Add(propertyName);
-                            }
-                            tokenStart = -1;
-                        }
-                    }
-
-                    // Associate values with names and add to properties
-                    for (int i = 0; i < Math.Min(propertyNames.Count, propertyValues.Length); i++)
-                    {
-                        // Guard against null property names
-                        if (!string.IsNullOrEmpty(propertyNames[i]))
-                        {
-                            properties[propertyNames[i]] = propertyValues[i];
-                        }
-                    }
-
-                    // Format the message by replacing property placeholders
-                    string result = messageTemplate;
-                    for (int i = 0; i < Math.Min(propertyNames.Count, propertyValues.Length); i++)
-                    {
-                        // Guard against null or empty property names
-                        if (string.IsNullOrEmpty(propertyNames[i]))
-                            continue;
-
-                        string propertyName = propertyNames[i];
-                        string placeholder = "{" + propertyName + "}";
-
-                        // Handle property with format specifier
-                        int formatPos = messageTemplate.IndexOf(propertyName + ":", StringComparison.Ordinal);
-                        if (formatPos > 0)
-                        {
-                            int closeBrace = messageTemplate.IndexOf('}', formatPos);
-                            if (closeBrace > 0)
-                            {
-                                int openBracePos = messageTemplate.LastIndexOf('{', formatPos);
-                                if (openBracePos >= 0) // Ensure we found an open brace
-                                {
-                                    string fullPlaceholder = messageTemplate.Substring(openBracePos,
-                                                                                 closeBrace - openBracePos + 1);
-                                    placeholder = fullPlaceholder;
-                                }
-                            }
-                        }
-
-                        result = result.Replace(placeholder, propertyValues[i]?.ToString() ?? "null");
-                    }
-                    return result;
-                }
-
-                return messageTemplate;
+                return _parent.SetMinimumLevel(LogLevel.Verbose);
             }
-            catch (Exception ex)
+
+            public LoggerConfiguration Debug()
             {
-                // Log internally and return the original template to avoid losing the message
-                Console.Error.WriteLine($"Error processing message template: {ex.Message}");
-                return messageTemplate;
+                return _parent.SetMinimumLevel(LogLevel.Debug);
+            }
+
+            public LoggerConfiguration Information()
+            {
+                return _parent.SetMinimumLevel(LogLevel.Information);
+            }
+
+            public LoggerConfiguration Warning()
+            {
+                return _parent.SetMinimumLevel(LogLevel.Warning);
+            }
+
+            public LoggerConfiguration Error()
+            {
+                return _parent.SetMinimumLevel(LogLevel.Error);
+            }
+
+            public LoggerConfiguration Fatal()
+            {
+                return _parent.SetMinimumLevel(LogLevel.Fatal);
             }
         }
 
-        public void Dispose()
-        {
-            foreach (var sink in _sinks)
-            {
-                sink.Dispose();
-            }
-        }
+        private LevelConfiguration _minimumLevel;
+        public LevelConfiguration MinimumLevel => _minimumLevel ?? (_minimumLevel = new LevelConfiguration(this));
     }
 
-    // Empty logger for initial setup
-    internal class EmptyLogger : ILogger
+    public class ConsoleSink : ILogEventSink
     {
-        public ILogger ForContext<T>() => this;
-        public ILogger ForContext(string context) => this;
-        public void Write(LogLevel level, string messageTemplate, params object[] propertyValues) { }
-        public void Write(LogLevel level, Exception exception, string messageTemplate, params object[] propertyValues) { }
-        public void Dispose() { }
-    }
+        private readonly LogLevel _restrictedToMinimumLevel;
 
-    // Log event class
-    public class LogEvent
-    {
-        public DateTimeOffset Timestamp => (DateTimeOffset)Properties["Timestamp"];
-        public LogLevel Level { get; }
-        public string MessageTemplate { get; }
-        public string RenderedMessage { get; }
-        public Exception Exception { get; }
-        public Dictionary<string, object> Properties { get; }
-
-        public LogEvent(LogLevel level, string renderedMessage, Exception exception, Dictionary<string, object> properties)
+        public ConsoleSink(LogLevel restrictedToMinimumLevel)
         {
-            Level = level;
-            MessageTemplate = renderedMessage;
-            RenderedMessage = renderedMessage;
-            Exception = exception;
-            Properties = properties;
-        }
-    }
-
-    // Enricher interface and implementations
-    public interface ILogEnricher
-    {
-        void Enrich(LogEvent logEvent);
-    }
-
-    public class PropertyEnricher : ILogEnricher
-    {
-        private readonly string _name;
-        private readonly object _value;
-
-        public PropertyEnricher(string name, object value)
-        {
-            _name = name;
-            _value = value;
-        }
-
-        public void Enrich(LogEvent logEvent)
-        {
-            logEvent.Properties[_name] = _value;
-        }
-    }
-
-    public class MachineNameEnricher : ILogEnricher
-    {
-        public void Enrich(LogEvent logEvent)
-        {
-            logEvent.Properties["MachineName"] = Environment.MachineName;
-        }
-    }
-
-    // Sink implementations
-    public class ConsoleSink : ILogSink
-    {
-        private readonly string _outputTemplate;
-
-        public ConsoleSink(string outputTemplate)
-        {
-            _outputTemplate = outputTemplate;
+            _restrictedToMinimumLevel = restrictedToMinimumLevel;
         }
 
         public void Emit(LogEvent logEvent)
         {
-            var output = LogEventFormatter.FormatLogEvent(logEvent, _outputTemplate);
+            if (logEvent.Level < _restrictedToMinimumLevel)
+                return;
 
-            // Set console color based on log level
-            ConsoleColor originalColor = Console.ForegroundColor;
-            Console.ForegroundColor = GetColorForLogLevel(logEvent.Level);
+            var originalColor = Console.ForegroundColor;
+            SetConsoleColor(logEvent.Level);
 
-            Console.WriteLine(output);
+            Console.WriteLine($"[{logEvent.Timestamp:yyyy-MM-dd HH:mm:ss}] [{logEvent.Level}] {logEvent.RenderedMessage}");
 
-            // Reset console color
+            if (logEvent.Exception != null)
+                Console.WriteLine($"Exception: {logEvent.Exception}");
+
             Console.ForegroundColor = originalColor;
         }
 
-
-        private ConsoleColor GetColorForLogLevel(LogLevel level)
+        private void SetConsoleColor(LogLevel level)
         {
             switch (level)
             {
                 case LogLevel.Verbose:
                 case LogLevel.Debug:
-                    return ConsoleColor.Gray;
+                    Console.ForegroundColor = ConsoleColor.Gray;
+                    break;
                 case LogLevel.Information:
-                    return ConsoleColor.White;
+                    Console.ForegroundColor = ConsoleColor.White;
+                    break;
                 case LogLevel.Warning:
-                    return ConsoleColor.Yellow;
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    break;
                 case LogLevel.Error:
-                    return ConsoleColor.Red;
                 case LogLevel.Fatal:
-                    return ConsoleColor.DarkRed;
-                default:
-                    return ConsoleColor.White;
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    break;
+            }
+        }
+    }
+
+    public class FileSink : ILogEventSink, IDisposable
+    {
+        private readonly string _path;
+        private readonly LogLevel _restrictedToMinimumLevel;
+        private readonly RollingInterval _rollingInterval;
+        private readonly long? _fileSizeLimitBytes;
+        private readonly int? _retainedFileCountLimit;
+
+        // Buffering properties
+        private readonly int _bufferSize;
+        private readonly TimeSpan _flushInterval;
+        private readonly bool _enableBuffering;
+        private readonly ConcurrentQueue<string> _messageQueue;
+        private readonly CancellationTokenSource _cancellationTokenSource;
+        private readonly Task _backgroundTask;
+        private readonly AutoResetEvent _flushEvent;
+        private readonly bool _backgroundThread;
+        private bool _disposed;
+
+        private string _currentFileName;
+        private DateTime _nextCheckpoint;
+        private long _currentFileSize;
+        private readonly object _syncRoot = new object();
+
+        public FileSink(
+            string path,
+            LogLevel restrictedToMinimumLevel,
+            RollingInterval rollingInterval = RollingInterval.Infinite,
+            long? fileSizeLimitBytes = null,
+            int? retainedFileCountLimit = null)
+        {
+            // Forward to the constructor with buffering options
+            // but disable buffering by default to maintain backward compatibility
+            // for direct calls to this constructor
+            _path = path;
+            _restrictedToMinimumLevel = restrictedToMinimumLevel;
+            _rollingInterval = rollingInterval;
+            _fileSizeLimitBytes = fileSizeLimitBytes;
+            _retainedFileCountLimit = retainedFileCountLimit;
+
+            // No buffering in this constructor for backward compatibility
+            _enableBuffering = false;
+
+            _currentFileName = ComputeCurrentFileName();
+            _nextCheckpoint = ComputeNextCheckpoint(DateTime.Now);
+        }
+
+        public FileSink(
+            string path,
+            LogLevel restrictedToMinimumLevel,
+            RollingInterval rollingInterval = RollingInterval.Infinite,
+            long? fileSizeLimitBytes = null,
+            int? retainedFileCountLimit = null,
+            bool enableBuffering = false,
+            int bufferSize = 100,
+            TimeSpan? flushInterval = null,
+            bool backgroundThread = true)
+        {
+            _path = path;
+            _restrictedToMinimumLevel = restrictedToMinimumLevel;
+            _rollingInterval = rollingInterval;
+            _fileSizeLimitBytes = fileSizeLimitBytes;
+            _retainedFileCountLimit = retainedFileCountLimit;
+
+            // Initialize buffering properties
+            _enableBuffering = enableBuffering;
+            _bufferSize = bufferSize > 0 ? bufferSize : 100;
+            _flushInterval = flushInterval ?? TimeSpan.FromSeconds(10);
+            _backgroundThread = backgroundThread && enableBuffering;
+
+            _currentFileName = ComputeCurrentFileName();
+            _nextCheckpoint = ComputeNextCheckpoint(DateTime.Now);
+
+            // Initialize buffering components if enabled
+            if (_enableBuffering)
+            {
+                _messageQueue = new ConcurrentQueue<string>();
+                _flushEvent = new AutoResetEvent(false);
+
+                if (_backgroundThread)
+                {
+                    _cancellationTokenSource = new CancellationTokenSource();
+                    _backgroundTask = Task.Factory.StartNew(
+                        ProcessQueue,
+                        _cancellationTokenSource.Token,
+                        TaskCreationOptions.LongRunning,
+                        TaskScheduler.Default);
+                }
             }
         }
 
-        public void Dispose() { }
+        public void Emit(LogEvent logEvent)
+        {
+            if (logEvent == null)
+                return;
+
+            if (logEvent.Level < _restrictedToMinimumLevel || _disposed)
+                return;
+
+            try
+            {
+                string lineToWrite = FormatLogLine(logEvent);
+
+                if (_enableBuffering)
+                {
+                    // Add to buffer queue
+                    _messageQueue.Enqueue(lineToWrite);
+
+                    // If the buffer is full, trigger a flush
+                    if (_messageQueue.Count >= _bufferSize)
+                    {
+                        if (_backgroundThread)
+                            _flushEvent.Set();
+                        else
+                            FlushBuffer();
+                    }
+                }
+                else
+                {
+                    // Original non-buffered behavior
+                    WriteToFile(lineToWrite, logEvent.Timestamp);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Enhanced error handling - try to write to a fallback location
+                TryWriteToFallbackLocation(ex, logEvent);
+            }
+        }
+
+        private void WriteToFile(string lineToWrite, DateTime timestamp)
+        {
+            if (string.IsNullOrEmpty(lineToWrite))
+                return;
+
+            try
+            {
+                lock (_syncRoot)
+                {
+                    // Check if we need to roll to a new file
+                    if (ShouldRollFile(timestamp, lineToWrite.Length))
+                    {
+                        _currentFileName = ComputeCurrentFileName(timestamp);
+                        _nextCheckpoint = ComputeNextCheckpoint(timestamp);
+                        _currentFileSize = 0;
+
+                        if (_retainedFileCountLimit.HasValue)
+                            ApplyRetentionPolicy();
+                    }
+
+                    // Ensure directory exists before attempting to write
+                    EnsureDirectoryExists(_currentFileName);
+
+                    // Add retry logic for transient IO issues
+                    int retryCount = 0;
+                    bool success = false;
+
+                    while (!success && retryCount < 3)
+                    {
+                        try
+                        {
+                            File.AppendAllText(_currentFileName, lineToWrite);
+                            _currentFileSize += lineToWrite.Length;
+                            success = true;
+                        }
+                        catch (IOException)
+                        {
+                            retryCount++;
+                            if (retryCount >= 3)
+                                throw;
+
+                            // Short delay before retry
+                            Thread.Sleep(50 * retryCount);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // If we still failed after retries, throw to be handled by caller
+                throw new Exception($"Failed to write to log file {_currentFileName} after retries", ex);
+            }
+        }
+
+        private void TryWriteToFallbackLocation(Exception originalException, LogEvent logEvent)
+        {
+            try
+            {
+                // Try to log the error to console first
+                Console.WriteLine($"Failed to write to log file: {originalException.Message}");
+
+                // Try to write to a fallback location (e.g., temp directory)
+                string fallbackDir = Path.Combine(Path.GetTempPath(), "LogFallback");
+                string fallbackFile = Path.Combine(fallbackDir, "fallback_log.txt");
+
+                if (!Directory.Exists(fallbackDir))
+                    Directory.CreateDirectory(fallbackDir);
+
+                string errorMessage = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] ERROR WRITING LOG: {originalException.Message}\r\n";
+                string logMessage = FormatLogLine(logEvent);
+
+                File.AppendAllText(fallbackFile, errorMessage + logMessage);
+            }
+            catch
+            {
+                // At this point we've done our best - silently fail
+                // We don't want logging failures to crash the application
+            }
+        }
+
+        private void ProcessQueue()
+        {
+            try
+            {
+                while (!_cancellationTokenSource.IsCancellationRequested)
+                {
+                    // Wait for a signal to flush or the flush interval to elapse
+                    _flushEvent.WaitOne(_flushInterval);
+
+                    if (!_disposed)
+                        FlushBuffer();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in background processing: {ex.Message}");
+            }
+        }
+
+        public void FlushBuffer()
+        {
+            if (!_enableBuffering || _disposed || (_messageQueue != null && _messageQueue.IsEmpty))
+                return;
+
+            var linesToWrite = new List<string>();
+
+            // Dequeue all messages
+            while (_messageQueue.TryDequeue(out string line))
+            {
+                linesToWrite.Add(line);
+            }
+
+            if (linesToWrite.Count == 0)
+                return;
+
+            try
+            {
+                // Join all lines into a single string for efficient writing
+                string allLines = string.Concat(linesToWrite);
+                WriteToFile(allLines, DateTime.Now);
+            }
+            catch (Exception ex)
+            {
+                // Log the error but don't rethrow - logging should not break the application
+                Console.WriteLine($"Failed to flush log buffer: {ex.Message}");
+
+                // Try to recover any lost messages
+                foreach (var line in linesToWrite)
+                {
+                    _messageQueue.Enqueue(line);
+                }
+            }
+        }
+
+        private string FormatLogLine(LogEvent logEvent)
+        {
+            var logLine = $"[{logEvent.Timestamp:yyyy-MM-dd HH:mm:ss}] [{logEvent.Level}] {logEvent.RenderedMessage}";
+            if (logEvent.Exception != null)
+                logLine += $"{Environment.NewLine}Exception: {logEvent.Exception}";
+
+            return logLine + Environment.NewLine;
+        }
+
+        private bool ShouldRollFile(DateTime timestamp, int nextWriteSize)
+        {
+            // Roll if file size limit reached
+            if (_fileSizeLimitBytes.HasValue && _currentFileSize + nextWriteSize > _fileSizeLimitBytes.Value)
+                return true;
+
+            // Roll if time period crossed
+            if (_rollingInterval != RollingInterval.Infinite && timestamp >= _nextCheckpoint)
+                return true;
+
+            return false;
+        }
+
+        private void ApplyRetentionPolicy()
+        {
+            try
+            {
+                var directory = Path.GetDirectoryName(_path);
+                var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(_path);
+                var extension = Path.GetExtension(_path);
+
+                var files = Directory.GetFiles(
+                    string.IsNullOrEmpty(directory) ? "." : directory,
+                    $"{fileNameWithoutExtension}*{extension}")
+                    .OrderByDescending(f => f)
+                    .Skip(_retainedFileCountLimit.Value)
+                    .ToList();
+
+                foreach (var obsoleteFile in files)
+                {
+                    try
+                    {
+                        File.Delete(obsoleteFile);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to delete old log file {obsoleteFile}: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error applying retention policy: {ex.Message}");
+            }
+        }
+
+        private string ComputeCurrentFileName(DateTime? date = null)
+        {
+            if (_rollingInterval == RollingInterval.Infinite)
+                return _path;
+
+            var dt = date ?? DateTime.Now;
+            var directory = Path.GetDirectoryName(_path);
+            var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(_path);
+            var extension = Path.GetExtension(_path);
+
+            string suffix = GetSuffix(dt);
+            string fileName = $"{fileNameWithoutExtension}{suffix}{extension}";
+
+            return string.IsNullOrEmpty(directory)
+                ? fileName
+                : Path.Combine(directory, fileName);
+        }
+
+        private string GetSuffix(DateTime dateTime)
+        {
+            switch (_rollingInterval)
+            {
+                case RollingInterval.Minute:
+                    return $"_{dateTime:yyyyMMddHHmm}";
+                case RollingInterval.Hour:
+                    return $"_{dateTime:yyyyMMddHH}";
+                case RollingInterval.Day:
+                    return $"_{dateTime:yyyyMMdd}";
+                case RollingInterval.Week:
+                    // ISO 8601 week format: year and week number
+                    return $"_{dateTime:yyyy}W{GetIso8601WeekOfYear(dateTime):00}";
+                case RollingInterval.Month:
+                    return $"_{dateTime:yyyyMM}";
+                case RollingInterval.Year:
+                    return $"_{dateTime:yyyy}";
+                default:
+                    return string.Empty;
+            }
+        }
+
+        private DateTime ComputeNextCheckpoint(DateTime dateTime)
+        {
+            switch (_rollingInterval)
+            {
+                case RollingInterval.Minute:
+                    return new DateTime(dateTime.Year, dateTime.Month, dateTime.Day,
+                        dateTime.Hour, dateTime.Minute, 0).AddMinutes(1);
+                case RollingInterval.Hour:
+                    return new DateTime(dateTime.Year, dateTime.Month, dateTime.Day,
+                        dateTime.Hour, 0, 0).AddHours(1);
+                case RollingInterval.Day:
+                    return new DateTime(dateTime.Year, dateTime.Month, dateTime.Day).AddDays(1);
+                case RollingInterval.Week:
+                    // Calculate the start of next week (first day of current week + 7 days)
+                    return GetFirstDayOfWeek(dateTime).AddDays(7);
+                case RollingInterval.Month:
+                    return new DateTime(dateTime.Year, dateTime.Month, 1).AddMonths(1);
+                case RollingInterval.Year:
+                    return new DateTime(dateTime.Year, 1, 1).AddYears(1);
+                default:
+                    return DateTime.MaxValue;
+            }
+        }
+
+        // Helper method to get the first day of the week containing the specified date
+        private DateTime GetFirstDayOfWeek(DateTime dt)
+        {
+            // Use ISO 8601 standard (Monday is first day of week)
+            int diff = dt.DayOfWeek - DayOfWeek.Monday;
+            if (diff < 0)
+                diff += 7;
+
+            return dt.AddDays(-diff).Date;
+        }
+
+        // Helper method to calculate ISO 8601 week of year
+        private int GetIso8601WeekOfYear(DateTime date)
+        {
+            // Get Thursday of the current week (ISO 8601 defines week by its Thursday)
+            DateTime thursdayOfCurrentWeek = GetFirstDayOfWeek(date).AddDays(3);
+
+            // Get the first Thursday of the year
+            DateTime firstDayOfYear = new DateTime(thursdayOfCurrentWeek.Year, 1, 1);
+            DateTime firstThursdayOfYear = firstDayOfYear;
+
+            while (firstThursdayOfYear.DayOfWeek != DayOfWeek.Thursday)
+                firstThursdayOfYear = firstThursdayOfYear.AddDays(1);
+
+            // Calculate the week number
+            int weekNumber = (int)Math.Floor((thursdayOfCurrentWeek - firstThursdayOfYear).TotalDays / 7) + 1;
+            return weekNumber;
+        }
+
+        private void EnsureDirectoryExists(string filePath)
+        {
+            var directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                Directory.CreateDirectory(directory);
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed)
+                return;
+
+            if (disposing)
+            {
+                try
+                {
+                    // Flush any remaining logs
+                    FlushBuffer();
+
+                    if (_backgroundThread)
+                    {
+                        // Signal the background task to stop
+                        _cancellationTokenSource?.Cancel();
+                        _flushEvent?.Set();
+
+                        try
+                        {
+                            // Wait for the background task to complete (with a timeout)
+                            if (_backgroundTask != null && !_backgroundTask.Wait(TimeSpan.FromSeconds(5)))
+                            {
+                                // Log a warning if the task didn't complete in time
+                                Console.WriteLine("Warning: Background logging task did not complete in the allotted time.");
+                            }
+                        }
+                        catch (AggregateException ex)
+                        {
+                            // Log the specific task exceptions
+                            Console.WriteLine($"Error waiting for background logging task: {ex.InnerException?.Message}");
+                        }
+
+                        // Dispose resources
+                        _cancellationTokenSource?.Dispose();
+                        _flushEvent?.Dispose();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Last resort error handling
+                    Console.WriteLine($"Error during FileSink disposal: {ex.Message}");
+                }
+            }
+
+            _disposed = true;
+        }
+
+        ~FileSink()
+        {
+            Dispose(false);
+        }
     }
 
     public enum RollingInterval
@@ -583,279 +783,358 @@ namespace RunLog
         Infinite,
         Year,
         Month,
+        Week,
         Day,
         Hour,
-        Minute,
-        Week
+        Minute
     }
 
-    public class FileSink : ILogSink
+    public class Logger
     {
-        private readonly string _pathFormat;
-        private readonly RollingInterval _rollingInterval;
-        private readonly string _outputTemplate;
+        private readonly LogLevel _minimumLevel;
+        private readonly List<ILogEventSink> _sinks;
+        private readonly Dictionary<string, object> _enrichers;
+        private readonly object _syncRoot = new object(); // Add a synchronization object
 
-        private string _currentFilePath;
-        private StreamWriter _currentWriter;
-        private DateTimeOffset _nextCheckpoint;
-
-        public FileSink(string pathFormat, RollingInterval rollingInterval, string outputTemplate)
+        internal Logger(LogLevel minimumLevel, List<ILogEventSink> sinks, Dictionary<string, object> enrichers)
         {
-            _pathFormat = pathFormat;
-            _rollingInterval = rollingInterval;
-            _outputTemplate = outputTemplate;
-
-            // Initialize writer
-            RollFile(DateTimeOffset.Now);
+            _minimumLevel = minimumLevel;
+            _sinks = new List<ILogEventSink>(sinks);
+            _enrichers = new Dictionary<string, object>(enrichers);
         }
 
-        public void Emit(LogEvent logEvent)
+        // Make all methods thread-safe by adding a lock
+        public void Verbose(string messageTemplate, params object[] propertyValues)
         {
+            lock (_syncRoot)
+            {
+                Write(LogLevel.Verbose, null, messageTemplate, propertyValues);
+            }
+        }
+
+        public void Debug(string messageTemplate, params object[] propertyValues)
+        {
+            lock (_syncRoot)
+            {
+                Write(LogLevel.Debug, null, messageTemplate, propertyValues);
+            }
+        }
+
+        public void Information(string messageTemplate, params object[] propertyValues)
+        {
+            lock (_syncRoot)
+            {
+                Write(LogLevel.Information, null, messageTemplate, propertyValues);
+            }
+        }
+
+        public void Warning(string messageTemplate, params object[] propertyValues)
+        {
+            lock (_syncRoot)
+            {
+                Write(LogLevel.Warning, null, messageTemplate, propertyValues);
+            }
+        }
+
+        public void Error(string messageTemplate, params object[] propertyValues)
+        {
+            lock (_syncRoot)
+            {
+                Write(LogLevel.Error, null, messageTemplate, propertyValues);
+            }
+        }
+
+        public void Error(Exception exception, string messageTemplate, params object[] propertyValues)
+        {
+            lock (_syncRoot)
+            {
+                Write(LogLevel.Error, exception, messageTemplate, propertyValues);
+            }
+        }
+
+        public void Fatal(string messageTemplate, params object[] propertyValues)
+        {
+            lock (_syncRoot)
+            {
+                Write(LogLevel.Fatal, null, messageTemplate, propertyValues);
+            }
+        }
+
+        public void Fatal(Exception exception, string messageTemplate, params object[] propertyValues)
+        {
+            lock (_syncRoot)
+            {
+                Write(LogLevel.Fatal, exception, messageTemplate, propertyValues);
+            }
+        }
+
+        // The Write method doesn't need locking as it's already called from within a lock
+        private void Write(LogLevel level, Exception exception, string messageTemplate, params object[] propertyValues)
+        {
+            if (level < _minimumLevel)
+                return;
+
+            // Rest of the method remains the same
+            var properties = ExtractProperties(messageTemplate, propertyValues);
+
+            // Add enrichers
+            foreach (var enricher in _enrichers)
+                properties[enricher.Key] = enricher.Value;
+
+            var renderedMessage = RenderMessage(messageTemplate, propertyValues);
+
+            var logEvent = new LogEvent
+            {
+                Timestamp = DateTime.Now,
+                Level = level,
+                MessageTemplate = messageTemplate,
+                RenderedMessage = renderedMessage,
+                Exception = exception,
+                Properties = properties
+            };
+
+            foreach (var sink in _sinks)
+            {
+                try
+                {
+                    sink.Emit(logEvent);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error in log sink: {ex.Message}");
+                }
+            }
+        }
+
+        private string RenderMessage(string messageTemplate, object[] propertyValues)
+        {
+            if (propertyValues == null || propertyValues.Length == 0)
+                return messageTemplate;
+
             try
             {
-                // Check if we need to roll to a new file
-                if (logEvent.Timestamp >= _nextCheckpoint)
+                // Improved regex to handle format specifiers like {PropertyName:00.00}
+                var regex = new System.Text.RegularExpressions.Regex(@"\{([^:{}]+)(?:\:([^{}]+))?\}");
+                var result = regex.Replace(messageTemplate, match =>
                 {
-                    RollFile(logEvent.Timestamp);
-                }
+                    string propertyName = match.Groups[1].Value;
+                    string formatSpecifier = match.Groups[2].Success ? match.Groups[2].Value : null;
 
-                // Format the log message
-                string formattedLog = LogEventFormatter.FormatLogEvent(logEvent, _outputTemplate);
-
-                // Write to file
-                lock (this)
-                {
-                    if (_currentWriter == null)
+                    // Find the property value
+                    int propIndex = -1;
+                    for (int i = 0; i < Math.Min(propertyValues.Length, regex.Matches(messageTemplate).Count); i++)
                     {
-                        // Try to re-initialize the writer if it's null
-                        try
+                        if (regex.Matches(messageTemplate)[i].Groups[1].Value == propertyName)
                         {
-                            RollFile(logEvent.Timestamp);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.Error.WriteLine($"Failed to create log file writer: {ex.Message}");
-                            return;
+                            propIndex = i;
+                            break;
                         }
                     }
 
-                    try
+                    // If we couldn't find the property by name, try to use it by position
+                    if (propIndex == -1)
                     {
-                        _currentWriter.WriteLine(formattedLog);
-                        _currentWriter.Flush();
-                    }
-                    catch (IOException ioEx)
-                    {
-                        Console.Error.WriteLine($"IO error writing to log file: {ioEx.Message}");
-                        // Try to re-create the writer
-                        try
+                        var allMatches = regex.Matches(messageTemplate);
+                        for (int i = 0; i < allMatches.Count; i++)
                         {
-                            _currentWriter?.Dispose();
-                            _currentWriter = null;
-                            RollFile(logEvent.Timestamp);
-                            // Try writing one more time
-                            _currentWriter?.WriteLine(formattedLog);
-                            _currentWriter?.Flush();
-                        }
-                        catch
-                        {
-                            // If it still fails, there's not much we can do
-                            Console.Error.WriteLine("Failed to recover from IO error in log file writer");
+                            if (allMatches[i].Value == match.Value && i < propertyValues.Length)
+                            {
+                                propIndex = i;
+                                break;
+                            }
                         }
                     }
-                }
+
+                    if (propIndex >= 0 && propIndex < propertyValues.Length)
+                    {
+                        object value = propertyValues[propIndex];
+
+                        // Handle null values
+                        if (value == null)
+                            return "(null)";
+
+                        // Apply format specifier if provided
+                        if (!string.IsNullOrEmpty(formatSpecifier) && value is IFormattable formattable)
+                        {
+                            return formattable.ToString(formatSpecifier, System.Globalization.CultureInfo.CurrentCulture);
+                        }
+
+                        return value.ToString();
+                    }
+
+                    // Return the original placeholder if we couldn't resolve it
+                    return match.Value;
+                });
+
+                return result;
             }
             catch (Exception ex)
             {
-                // Last resort error handling
-                Console.Error.WriteLine($"Error in FileSink.Emit: {ex.Message}");
+                // Log the error but don't throw - log formatting shouldn't break the application
+                Console.WriteLine($"Error formatting log message: {ex.Message}");
+                return messageTemplate;
             }
         }
 
-        private void RollFile(DateTimeOffset now)
+        // Update the ExtractProperties method to correctly handle format specifiers
+        private Dictionary<string, object> ExtractProperties(string messageTemplate, object[] propertyValues)
         {
-            lock (this)
+            var properties = new Dictionary<string, object>();
+
+            if (propertyValues == null || propertyValues.Length == 0)
+                return properties;
+
+            // Extract property names from the template with improved regex
+            var propertyNames = new List<string>();
+            var regex = new System.Text.RegularExpressions.Regex(@"\{([^:{}]+)(?:\:([^{}]+))?\}");
+            var matches = regex.Matches(messageTemplate);
+
+            foreach (System.Text.RegularExpressions.Match match in matches)
             {
-                // Close the existing writer if it exists
-                if (_currentWriter != null)
+                // Extract the property name (without format specifiers)
+                var propertyName = match.Groups[1].Value;
+                propertyNames.Add(propertyName);
+            }
+
+            // Add properties with names when available, fallback to position-based when not
+            for (var i = 0; i < propertyValues.Length; i++)
+            {
+                string key = i < propertyNames.Count ? propertyNames[i] : $"Prop{i}";
+                properties[key] = propertyValues[i];
+            }
+
+            return properties;
+        }
+    }
+
+    public class Log
+    {
+        private static readonly object _syncRoot = new object();
+        private static volatile Logger _logger;
+
+        public static Logger Logger
+        {
+            get
+            {
+                if (_logger == null)
+                    throw new InvalidOperationException("Logger has not been configured. Call Log.Logger = new LoggerConfiguration().CreateLogger() before use.");
+
+                return _logger;
+            }
+            set
+            {
+                lock (_syncRoot)
                 {
-                    _currentWriter.Dispose();
-                    _currentWriter = null;
+                    // Clean up old logger if needed
+                    CloseAndFlush();
+                    _logger = value;
+
+                    // Automatically register shutdown handler when Logger is configured
+                    RegisterShutdownHandler();
                 }
-
-                // Get new file path
-                string filePath = ComputeFilePath(now);
-                _currentFilePath = filePath;
-
-                // Ensure directory exists
-                string directory = Path.GetDirectoryName(filePath);
-                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
-                // Create new writer
-                var fileStream = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.Read);
-                _currentWriter = new StreamWriter(fileStream, Encoding.UTF8);
-
-                // Set next checkpoint
-                _nextCheckpoint = ComputeNextCheckpoint(now);
             }
         }
 
-        private string ComputeFilePath(DateTimeOffset now)
-        {
-            // If using infinite interval or pathFormat doesn't contain date format placeholder,
-            // just return the original path
-            if (_rollingInterval == RollingInterval.Infinite)
-                return _pathFormat;
-
-            string extension = Path.GetExtension(_pathFormat);
-            string basePath = Path.Combine(
-                Path.GetDirectoryName(_pathFormat) ?? "",
-                Path.GetFileNameWithoutExtension(_pathFormat)
-            );
-
-            string suffix = "";
-            switch (_rollingInterval)
-            {
-                case RollingInterval.Year:
-                    suffix = now.ToString("yyyy");
-                    break;
-                case RollingInterval.Month:
-                    suffix = now.ToString("yyyyMM");
-                    break;
-                case RollingInterval.Day:
-                    suffix = now.ToString("yyyyMMdd");
-                    break;
-                case RollingInterval.Hour:
-                    suffix = now.ToString("yyyyMMddHH");
-                    break;
-                case RollingInterval.Minute:
-                    suffix = now.ToString("yyyyMMddHHmm");
-                    break;
-                case RollingInterval.Week:
-                    // Get the date of the start of the week (assuming Sunday is the first day)
-                    int diff = (7 + (now.DayOfWeek - DayOfWeek.Sunday)) % 7;
-                    var startOfWeek = now.AddDays(-1 * diff);
-                    suffix = startOfWeek.ToString("yyyyMMdd");
-                    break;
-            }
-
-            return $"{basePath}_{suffix}{extension}";
-        }
-
-        private DateTimeOffset ComputeNextCheckpoint(DateTimeOffset now)
-        {
-            switch (_rollingInterval)
-            {
-                case RollingInterval.Infinite:
-                    return DateTimeOffset.MaxValue;
-                case RollingInterval.Year:
-                    return new DateTimeOffset(now.Year + 1, 1, 1, 0, 0, 0, now.Offset);
-                case RollingInterval.Month:
-                    return new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, now.Offset).AddMonths(1);
-                case RollingInterval.Day:
-                    return now.Date.AddDays(1);
-                case RollingInterval.Hour:
-                    return new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, 0, 0, now.Offset).AddHours(1);
-                case RollingInterval.Minute:
-                    return new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0, now.Offset).AddMinutes(1);
-                case RollingInterval.Week:
-                    // Calculate days until next Sunday
-                    int daysUntilNextWeek = (7 - (int)now.DayOfWeek) % 7;
-                    if (daysUntilNextWeek == 0) daysUntilNextWeek = 7; // If today is Sunday, go to next Sunday
-                    return now.Date.AddDays(daysUntilNextWeek);
-                default:
-                    return DateTimeOffset.MaxValue;
-            }
-        }
-
-        public void Dispose()
-        {
-            lock (this)
-            {
-                _currentWriter?.Dispose();
-                _currentWriter = null;
-            }
-        }
-    }
-
-    // Helper method for formatting log events
-    public static class LogEventFormatter
-    {
-        public static string FormatLogEvent(LogEvent logEvent, string template)
-        {
-            // Replace known tokens in the template
-            var result = template
-                .Replace("{Timestamp}", logEvent.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"))
-                .Replace("{Timestamp:yyyy-MM-dd HH:mm:ss}", logEvent.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"))
-                .Replace("{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz}", logEvent.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff zzz"))
-                .Replace("{Level}", logEvent.Level.ToString())
-                .Replace("{Level:u3}", logEvent.Level.ToString().Substring(0, Math.Min(3, logEvent.Level.ToString().Length)).ToUpper())
-                .Replace("{Message}", logEvent.RenderedMessage)
-                .Replace("{Message:lj}", logEvent.RenderedMessage) // lj = line-joined, simplified here
-                .Replace("{NewLine}", Environment.NewLine)
-                .Replace("{Exception}", logEvent.Exception?.ToString() ?? "");
-
-            // Process other properties
-            foreach (var prop in logEvent.Properties)
-            {
-                result = result.Replace($"{{{prop.Key}}}", prop.Value?.ToString() ?? "");
-            }
-
-            // Handle the case when SourceContext is not present
-            if (!logEvent.Properties.ContainsKey("SourceContext"))
-            {
-                result = result.Replace("{SourceContext} ", ""); // Remove the token and the space after it
-            }
-
-            return result;
-        }
-    }
-
-    // Extension method for the formatters - add this at the end of your namespace
-    public static class LogSinkExtensions
-    {
-        public static string FormatLogEvent(this ILogSink sink, LogEvent logEvent, string template)
-        {
-            return LogEventFormatter.FormatLogEvent(logEvent, template);
-        }
-    }
-    public static class LoggerExtensions
-    {
-        public static void Verbose(this ILogger logger, string messageTemplate, params object[] propertyValues) =>
-            logger.Write(LogLevel.Verbose, messageTemplate, propertyValues);
-
-        public static void Debug(this ILogger logger, string messageTemplate, params object[] propertyValues) =>
-            logger.Write(LogLevel.Debug, messageTemplate, propertyValues);
-
-        public static void Information(this ILogger logger, string messageTemplate, params object[] propertyValues) =>
-            logger.Write(LogLevel.Information, messageTemplate, propertyValues);
-
-        public static void Warning(this ILogger logger, string messageTemplate, params object[] propertyValues) =>
-            logger.Write(LogLevel.Warning, messageTemplate, propertyValues);
+        private static readonly List<IDisposable> _disposableSinks = new List<IDisposable>();
 
         /// <summary>
-        /// Writes a warning log event with an exception and the specified message template.
+        /// Creates a logger from the supplied configuration.
         /// </summary>
-        /// <param name="logger">The logger to write to.</param>
-        /// <param name="exception">The exception to include in the log event.</param>
-        /// <param name="messageTemplate">The message template containing property placeholders.</param>
-        /// <param name="propertyValues">Values for the message template properties.</param>
-        public static void Warning(this ILogger logger, Exception exception, string messageTemplate, params object[] propertyValues) =>
-            logger.Write(LogLevel.Warning, exception, messageTemplate, propertyValues);
+        public static Logger CreateLogger(LoggerConfiguration configuration)
+        {
+            if (configuration == null) throw new ArgumentNullException(nameof(configuration));
 
-        public static void Error(this ILogger logger, string messageTemplate, params object[] propertyValues) =>
-            logger.Write(LogLevel.Error, messageTemplate, propertyValues);
+            return new Logger(
+                configuration.MinimumLevelValue,
+                configuration.SinksList,
+                configuration.Enrichers);
+        }
 
-        public static void Error(this ILogger logger, Exception exception, string messageTemplate, params object[] propertyValues) =>
-            logger.Write(LogLevel.Error, exception, messageTemplate, propertyValues);
+        // Static methods that forward to the Logger property - with null checking
+        public static void Verbose(string messageTemplate, params object[] propertyValues)
+        {
+            Logger.Verbose(messageTemplate, propertyValues);
+        }
 
-        public static void Fatal(this ILogger logger, string messageTemplate, params object[] propertyValues) =>
-            logger.Write(LogLevel.Fatal, messageTemplate, propertyValues);
+        public static void Debug(string messageTemplate, params object[] propertyValues)
+        {
+            Logger.Debug(messageTemplate, propertyValues);
+        }
 
-        public static void Fatal(this ILogger logger, Exception exception, string messageTemplate, params object[] propertyValues) =>
-            logger.Write(LogLevel.Fatal, exception, messageTemplate, propertyValues);
+        public static void Information(string messageTemplate, params object[] propertyValues)
+        {
+            Logger.Information(messageTemplate, propertyValues);
+        }
+
+        public static void Warning(string messageTemplate, params object[] propertyValues)
+        {
+            Logger.Warning(messageTemplate, propertyValues);
+        }
+
+        public static void Error(string messageTemplate, params object[] propertyValues)
+        {
+            Logger.Error(messageTemplate, propertyValues);
+        }
+
+        public static void Error(Exception exception, string messageTemplate, params object[] propertyValues)
+        {
+            Logger.Error(exception, messageTemplate, propertyValues);
+        }
+
+        public static void Fatal(string messageTemplate, params object[] propertyValues)
+        {
+            Logger.Fatal(messageTemplate, propertyValues);
+        }
+
+        public static void Fatal(Exception exception, string messageTemplate, params object[] propertyValues)
+        {
+            Logger.Fatal(exception, messageTemplate, propertyValues);
+        }
+
+        /// <summary>
+        /// Flushes any buffered log events and closes/disposes resources.
+        /// </summary>
+        public static void CloseAndFlush()
+        {
+            lock (_syncRoot)
+            {
+                // Since we can't access Logger._sinks directly, we'll work with our tracked disposables
+                foreach (var disposable in _disposableSinks)
+                {
+                    try
+                    {
+                        // Flush any buffered file sinks
+                        if (disposable is FileSink fileSink)
+                        {
+                            fileSink.FlushBuffer();
+                        }
+
+                        // Then dispose the sink
+                        disposable.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error flushing/disposing sink: {ex.Message}");
+                    }
+                }
+
+                // Clear the list
+                _disposableSinks.Clear();
+            }
+        }
+
+        // Add application shutdown handler to ensure logs are flushed
+        private static void RegisterShutdownHandler()
+        {
+            AppDomain.CurrentDomain.ProcessExit += (sender, e) => CloseAndFlush();
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            {
+                if (_logger != null)
+                {
+                    Fatal("Unhandled exception: {Exception}", e.ExceptionObject);
+                    CloseAndFlush();
+                }
+            };
+        }
     }
 }

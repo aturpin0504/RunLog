@@ -1,18 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <package >
   <metadata>
-    <id>$id$</id>
-    <version>$version$</version>
-    <title>$title$</title>
-    <authors>aturpin0504</authors>
+    <id>RunLog</id>
+    <version>2.0.0</version>
+    <title>RunLog</title>
+    <authors>aaturpin</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <license type="expression">MIT</license>
     <!-- <icon>icon.png</icon> -->
     <projectUrl>https://github.com/aturpin0504/RunLog</projectUrl>
-    <description>$description$</description>
-    <releaseNotes>Initial release with support for console and file logging, log enrichment, and rolling file logs.</releaseNotes>
-    <copyright>$copyright$</copyright>
-    <tags>logging diagnostics .NET</tags>
+    <description>A lightweight, customizable logging framework inspired by Serilog.</description>
+    <releaseNotes>
+      Breaking Changes:
+      - Redesigned core architecture for better performance and usability
+      - Changed logger configuration API
+      - File sinks now buffered by default
+
+      New Features:
+      - Added buffering support to file sinks for improved performance
+      - Enhanced file rolling capabilities with more options
+      - Added automatic registration of shutdown handlers
+      - Added thread-safety throughout the library
+      - Improved exception handling and error recovery
+      - Added file size-based rolling in addition to time-based rolling
+      - Added fallback mechanisms for handling logging failures
+
+      Improvements:
+      - Better formatting capabilities for log messages
+      - Enhanced memory usage and performance
+      - More robust file handling with retry logic
+      - Improved property extraction from message templates
+    </releaseNotes>
+    <copyright>Copyright 2025</copyright>
+    <tags>logging structured-logging diagnostics .NET</tags>
     <readme>README.md</readme>
   </metadata>
   <files>
