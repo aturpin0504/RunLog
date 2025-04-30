@@ -2,7 +2,7 @@
 <package >
   <metadata>
     <id>RunLog</id>
-    <version>3.0.0</version>
+    <version>3.1.0</version>
     <title>RunLog</title>
     <authors>aaturpin</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
