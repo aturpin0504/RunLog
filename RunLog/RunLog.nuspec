@@ -11,32 +11,16 @@
     <projectUrl>https://github.com/aturpin0504/RunLog</projectUrl>
     <description>A lightweight, customizable logging framework inspired by Serilog.</description>
     <releaseNotes>
-      RunLog 3.0.0 Release Notes
-
-      Major Changes:
-      * Restructured library into multiple files for better organization
-      * Added dependency on AaTurpin.Utilities package
-      * Changed from ILogEventSink interface to concrete sink types
-      * File sinks are now buffered by default for better performance
-      * Added thread-safety via synchronization locks
-
+      RunLog 3.1.0 Release Notes
       New Features:
-      * Enhanced error handling with retry logic for IO issues
-      * Added fallback logging location when primary destination fails
-      * Extended support for format specifiers in log templates
-      * Improved file path handling with PathUtils
-      * Better DateTime handling for rolling intervals
-      * Public Sinks property on Logger class for inspection
+      * Added Warning method overloads that accept exceptions in both Log and Logger classes
+      * Added Logger.Warning(Exception exception, string messageTemplate, params object[] propertyValues)
+      * Added Log.Warning(Exception exception, string messageTemplate, params object[] propertyValues)
+      * Completed exception handling methods across all log levels (Verbose, Debug, Information, Warning, Error, Fatal)
+      Compatible:
 
-      Bug Fixes:
-      * Fixed issues with concurrent access to shared resources
-      * Improved message rendering with robust regex pattern matching
-      * Better handling of buffered writes with proper cleanup
-
-      Performance Improvements:
-      * Buffered file operations by default for higher throughput
-      * More efficient message queue processing
-      * Improved file rolling logic
+      Maintains compatibility with .NET Framework 4.7.2
+      Backward compatible with all previous 3.x versions
     </releaseNotes>
     <copyright>Copyright 2025</copyright>
     <tags>logging structured-logging diagnostics .NET</tags>

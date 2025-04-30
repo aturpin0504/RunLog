@@ -67,6 +67,11 @@ namespace RunLog
             Logger.Warning(messageTemplate, propertyValues);
         }
 
+        public static void Warning(Exception exception, string messageTemplate, params object[] propertyValues)
+        {
+            Logger.Warning(exception, messageTemplate, propertyValues);
+        }
+
         public static void Error(string messageTemplate, params object[] propertyValues)
         {
             Logger.Error(messageTemplate, propertyValues);

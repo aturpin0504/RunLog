@@ -53,6 +53,14 @@ namespace RunLog
             }
         }
 
+        public void Warning(Exception exception, string messageTemplate, params object[] propertyValues)
+        {
+            lock (_syncRoot)
+            {
+                Write(LogLevel.Warning, exception, messageTemplate, propertyValues);
+            }
+        }
+
         public void Error(string messageTemplate, params object[] propertyValues)
         {
             lock (_syncRoot)
