@@ -13,8 +13,8 @@ RunLog is a lightweight, customizable logging framework inspired by Serilog. It 
 - Customizable minimum log levels per sink
 - File rolling capabilities (by time interval or size)
 - Structured logging with property value capturing
-- Exception logging
 - Thread-safe operation
+- Exception logging
 - Custom formatters support
 - Enrichers for adding custom properties
 
@@ -314,6 +314,26 @@ var config = new LoggerConfiguration()
         enableBuffering: false);  // Immediate writes
 ```
 
+## Error Handling
+
+RunLog includes built-in error handling with retry mechanisms and fallback logging:
+
+```csharp
+// The File sink will automatically:
+// - Retry file writes up to 3 times with increasing delay
+// - Fall back to temporary directory logging if the target location is inaccessible
+// - Handle transient file access issues gracefully
+```
+
+## Thread Safety
+
+All logging operations in RunLog 3.0.0 are thread-safe by default:
+
+```csharp
+// These operations can be safely called from multiple threads
+Log.Information("Processing request from thread {ThreadId}", Thread.CurrentThread.ManagedThreadId);
+```
+
 ## Full Example
 
 Here's a comprehensive example showcasing multiple features:
@@ -393,6 +413,10 @@ namespace LoggingDemo
     }
 }
 ```
+
+## Dependencies
+
+RunLog 3.0.0 has a dependency on the AaTurpin.Utilities package, which provides date/time and path utility functions used for file operations and rolling intervals.
 
 ## License
 

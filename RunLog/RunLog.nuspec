@@ -2,7 +2,7 @@
 <package >
   <metadata>
     <id>RunLog</id>
-    <version>2.0.0</version>
+    <version>3.0.0</version>
     <title>RunLog</title>
     <authors>aaturpin</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
@@ -11,25 +11,32 @@
     <projectUrl>https://github.com/aturpin0504/RunLog</projectUrl>
     <description>A lightweight, customizable logging framework inspired by Serilog.</description>
     <releaseNotes>
-      Breaking Changes:
-      - Redesigned core architecture for better performance and usability
-      - Changed logger configuration API
-      - File sinks now buffered by default
+      RunLog 3.0.0 Release Notes
+
+      Major Changes:
+      * Restructured library into multiple files for better organization
+      * Added dependency on AaTurpin.Utilities package
+      * Changed from ILogEventSink interface to concrete sink types
+      * File sinks are now buffered by default for better performance
+      * Added thread-safety via synchronization locks
 
       New Features:
-      - Added buffering support to file sinks for improved performance
-      - Enhanced file rolling capabilities with more options
-      - Added automatic registration of shutdown handlers
-      - Added thread-safety throughout the library
-      - Improved exception handling and error recovery
-      - Added file size-based rolling in addition to time-based rolling
-      - Added fallback mechanisms for handling logging failures
+      * Enhanced error handling with retry logic for IO issues
+      * Added fallback logging location when primary destination fails
+      * Extended support for format specifiers in log templates
+      * Improved file path handling with PathUtils
+      * Better DateTime handling for rolling intervals
+      * Public Sinks property on Logger class for inspection
 
-      Improvements:
-      - Better formatting capabilities for log messages
-      - Enhanced memory usage and performance
-      - More robust file handling with retry logic
-      - Improved property extraction from message templates
+      Bug Fixes:
+      * Fixed issues with concurrent access to shared resources
+      * Improved message rendering with robust regex pattern matching
+      * Better handling of buffered writes with proper cleanup
+
+      Performance Improvements:
+      * Buffered file operations by default for higher throughput
+      * More efficient message queue processing
+      * Improved file rolling logic
     </releaseNotes>
     <copyright>Copyright 2025</copyright>
     <tags>logging structured-logging diagnostics .NET</tags>
