@@ -2,7 +2,7 @@
 <package >
   <metadata>
     <id>RunLog</id>
-    <version>3.1.0</version>
+    <version>3.2.0</version>
     <title>RunLog</title>
     <authors>aaturpin</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
@@ -11,16 +11,22 @@
     <projectUrl>https://github.com/aturpin0504/RunLog</projectUrl>
     <description>A lightweight, customizable logging framework inspired by Serilog.</description>
     <releaseNotes>
-      RunLog 3.1.0 Release Notes
-      New Features:
-      * Added Warning method overloads that accept exceptions in both Log and Logger classes
-      * Added Logger.Warning(Exception exception, string messageTemplate, params object[] propertyValues)
-      * Added Log.Warning(Exception exception, string messageTemplate, params object[] propertyValues)
-      * Completed exception handling methods across all log levels (Verbose, Debug, Information, Warning, Error, Fatal)
-      Compatible:
+      RunLog 3.2.0 Release Notes
 
-      Maintains compatibility with .NET Framework 4.7.2
-      Backward compatible with all previous 3.x versions
+      Breaking Changes:
+      * Removed dependency on AaTurpin.Utilities package
+      * Implemented internal versions of previously external utility methods
+      * Removed named logger functionality (RegisterLogger, GetLogger, LoggerExists)
+
+      Improvements:
+      * Self-contained implementation of ISO 8601 date calculations
+      * Simplified CloseAndFlush method
+      * Maintained all core logging functionality
+
+      Compatible:
+      * Maintains compatibility with .NET Framework 4.7.2
+      * Applications using only the main logging features require no code changes
+      * Applications using named loggers will need updates
     </releaseNotes>
     <copyright>Copyright 2025</copyright>
     <tags>logging structured-logging diagnostics .NET</tags>

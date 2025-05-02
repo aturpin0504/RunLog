@@ -29,6 +29,14 @@ namespace RunLog
             }
         }
 
+        public void Verbose(Exception exception, string messageTemplate, params object[] propertyValues)
+        {
+            lock (_syncRoot)
+            {
+                Write(LogLevel.Verbose, exception, messageTemplate, propertyValues);
+            }
+        }
+
         public void Debug(string messageTemplate, params object[] propertyValues)
         {
             lock (_syncRoot)
@@ -37,11 +45,27 @@ namespace RunLog
             }
         }
 
+        public void Debug(Exception exception, string messageTemplate, params object[] propertyValues)
+        {
+            lock (_syncRoot)
+            {
+                Write(LogLevel.Debug, exception, messageTemplate, propertyValues);
+            }
+        }
+
         public void Information(string messageTemplate, params object[] propertyValues)
         {
             lock (_syncRoot)
             {
                 Write(LogLevel.Information, null, messageTemplate, propertyValues);
+            }
+        }
+
+        public void Information(Exception exception, string messageTemplate, params object[] propertyValues)
+        {
+            lock (_syncRoot)
+            {
+                Write(LogLevel.Information, exception, messageTemplate, propertyValues);
             }
         }
 

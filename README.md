@@ -327,7 +327,7 @@ RunLog includes built-in error handling with retry mechanisms and fallback loggi
 
 ## Thread Safety
 
-All logging operations in RunLog 3.0.0 are thread-safe by default:
+All logging operations in RunLog are thread-safe by default:
 
 ```csharp
 // These operations can be safely called from multiple threads
@@ -416,7 +416,16 @@ namespace LoggingDemo
 
 ## Dependencies
 
-RunLog 3.0.0 has a dependency on the AaTurpin.Utilities package, which provides date/time and path utility functions used for file operations and rolling intervals.
+RunLog 3.2.0 has no external dependencies. All necessary functionality for date/time calculations and file operations is now implemented directly within the package.
+
+### Changes in 3.2.0
+
+- Removed dependency on AaTurpin.Utilities package
+- Implemented internal versions of date/time utilities and file path handling
+- Removed named logger functionality (RegisterLogger, GetLogger, LoggerExists)
+- Maintained compatibility with all core logging features
+
+Applications using only the standard logging API (Log.Information, Log.Error, etc.) should require no code changes. Applications using named loggers will need to implement their own mechanism or update to use the simplified logger approach.
 
 ## License
 

@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using AaTurpin.Utilities;
 
 namespace RunLog
 {
@@ -159,8 +158,12 @@ namespace RunLog
                             ApplyRetentionPolicy();
                     }
 
-                    // Use PathUtils to ensure directory exists before attempting to write
-                    PathUtils.EnsureDirectoryExistsForFile(_currentFileName);
+                    // Ensure directory exists before attempting to write
+                    string directory = Path.GetDirectoryName(_currentFileName);
+                    if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
 
                     // Add retry logic for transient IO issues
                     int retryCount = 0;
@@ -346,6 +349,29 @@ namespace RunLog
                 : Path.Combine(directory, fileName);
         }
 
+        private DateTime GetFirstDayOfWeek(DateTime dt)
+        {
+            // Use ISO 8601 standard (Monday is first day of week)
+            int diff = dt.DayOfWeek - DayOfWeek.Monday;
+            if (diff < 0)
+                diff += 7;
+            return dt.AddDays(-diff).Date;
+        }
+
+        private int GetIso8601WeekOfYear(DateTime date)
+        {
+            // Get Thursday of the current week (ISO 8601 defines week by its Thursday)
+            DateTime thursdayOfCurrentWeek = GetFirstDayOfWeek(date).AddDays(3);
+            // Get the first Thursday of the year
+            DateTime firstDayOfYear = new DateTime(thursdayOfCurrentWeek.Year, 1, 1);
+            DateTime firstThursdayOfYear = firstDayOfYear;
+            while (firstThursdayOfYear.DayOfWeek != DayOfWeek.Thursday)
+                firstThursdayOfYear = firstThursdayOfYear.AddDays(1);
+            // Calculate the week number
+            int weekNumber = (int)Math.Floor((thursdayOfCurrentWeek - firstThursdayOfYear).TotalDays / 7) + 1;
+            return weekNumber;
+        }
+
         private string GetSuffix(DateTime dateTime)
         {
             switch (_rollingInterval)
@@ -358,7 +384,7 @@ namespace RunLog
                     return $"_{dateTime:yyyyMMdd}";
                 case RollingInterval.Week:
                     // ISO 8601 week format: year and week number
-                    return $"_{dateTime:yyyy}W{DateTimeUtils.GetIso8601WeekOfYear(dateTime):00}";
+                    return $"_{dateTime:yyyy}W{GetIso8601WeekOfYear(dateTime):00}";
                 case RollingInterval.Month:
                     return $"_{dateTime:yyyyMM}";
                 case RollingInterval.Year:
@@ -382,7 +408,7 @@ namespace RunLog
                     return new DateTime(dateTime.Year, dateTime.Month, dateTime.Day).AddDays(1);
                 case RollingInterval.Week:
                     // Calculate the start of next week (first day of current week + 7 days)
-                    return DateTimeUtils.GetFirstDayOfWeek(dateTime).AddDays(7);
+                    return GetFirstDayOfWeek(dateTime).AddDays(7);
                 case RollingInterval.Month:
                     return new DateTime(dateTime.Year, dateTime.Month, 1).AddMonths(1);
                 case RollingInterval.Year:
