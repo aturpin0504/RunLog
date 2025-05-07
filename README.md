@@ -17,6 +17,7 @@ RunLog is a lightweight, customizable logging framework inspired by Serilog. It 
 - Exception logging
 - Custom formatters support
 - Enrichers for adding custom properties
+- Named logger support for component-specific logging
 
 ## Installation
 
@@ -210,6 +211,32 @@ Log.Information("Time: {Time:HH:mm:ss}", DateTime.Now);
 
 ## Advanced Usage
 
+### Using Named Loggers
+
+RunLog 3.3.0 adds support for named loggers, which allows you to register and retrieve specific logger instances:
+
+```csharp
+// Create a specialized logger for a component
+var paymentLogger = new LoggerConfiguration()
+    .MinimumLevel.Debug()
+    .WriteTo.File("logs/payments.log")
+    .Enrich("Component", "PaymentProcessor")
+    .CreateLogger();
+
+// Register the logger with a name
+Log.RegisterLogger("Payments", paymentLogger);
+
+// Later, in payment processing code:
+var logger = Log.GetLogger("Payments");
+logger.Information("Processing payment for {OrderId}", "ORD-123");
+
+// Check if a specific logger exists
+if (Log.LoggerExists("Payments"))
+{
+    // Use the logger
+}
+```
+
 ### Creating a Custom Instance
 
 If you need a separate logger instance with different configuration:
@@ -327,7 +354,7 @@ RunLog includes built-in error handling with retry mechanisms and fallback loggi
 
 ## Thread Safety
 
-All logging operations in RunLog are thread-safe by default:
+All logging operations in RunLog are thread-safe by default. In version 3.3.0, thread safety has been enhanced with comprehensive synchronization locks:
 
 ```csharp
 // These operations can be safely called from multiple threads
@@ -370,6 +397,15 @@ namespace LoggingDemo
                     flushInterval: TimeSpan.FromSeconds(5))
                 .CreateLogger();
             
+            // Create and register a component-specific logger
+            var orderLogger = new LoggerConfiguration()
+                .MinimumLevel.Debug()
+                .WriteTo.File("logs/orders.log")
+                .Enrich("Component", "OrderProcessor")
+                .CreateLogger();
+                
+            Log.RegisterLogger("Orders", orderLogger);
+            
             try
             {
                 Log.Information("Application starting up");
@@ -379,8 +415,10 @@ namespace LoggingDemo
                 {
                     Log.Debug("Processing item {ItemIndex}", i);
                     
+                    // Use the component-specific logger
                     if (i % 2 == 0)
                     {
+                        Log.GetLogger("Orders").Information("Creating order for item {ItemIndex}", i);
                         Log.Information("Successfully processed item {ItemIndex}", i);
                     }
                     else
@@ -416,16 +454,25 @@ namespace LoggingDemo
 
 ## Dependencies
 
-RunLog 3.2.0 has no external dependencies. All necessary functionality for date/time calculations and file operations is now implemented directly within the package.
+RunLog 3.3.0 has no external dependencies. All necessary functionality for date/time calculations, file operations, and thread synchronization is implemented directly within the package.
+
+### Changes in 3.3.0
+
+- Added named logger functionality (RegisterLogger, GetLogger, LoggerExists)
+- Enhanced thread safety with comprehensive synchronization locks
+- Added public Sinks property to Logger class for inspection
+- Improved buffering support with background thread processing
+- Better error handling in FileSink with retry logic for transient IO issues
+- Enhanced message rendering with improved format specifier handling
+- Added fallback error handling for file write operations
+- Improved shutdown handling with enhanced resource disposal
+- Added comprehensive XML documentation comments
 
 ### Changes in 3.2.0
 
 - Removed dependency on AaTurpin.Utilities package
 - Implemented internal versions of date/time utilities and file path handling
-- Removed named logger functionality (RegisterLogger, GetLogger, LoggerExists)
 - Maintained compatibility with all core logging features
-
-Applications using only the standard logging API (Log.Information, Log.Error, etc.) should require no code changes. Applications using named loggers will need to implement their own mechanism or update to use the simplified logger approach.
 
 ## License
 
