@@ -2,7 +2,7 @@
 <package >
   <metadata>
     <id>RunLog</id>
-    <version>3.2.0</version>
+    <version>3.3.0</version>
     <title>RunLog</title>
     <authors>aaturpin</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
@@ -11,22 +11,32 @@
     <projectUrl>https://github.com/aturpin0504/RunLog</projectUrl>
     <description>A lightweight, customizable logging framework inspired by Serilog.</description>
     <releaseNotes>
-      RunLog 3.2.0 Release Notes
-
-      Breaking Changes:
-      * Removed dependency on AaTurpin.Utilities package
-      * Implemented internal versions of previously external utility methods
-      * Removed named logger functionality (RegisterLogger, GetLogger, LoggerExists)
-
+      RunLog 3.3.0 Release Notes
+      New Features:
+      * Added named logger functionality (RegisterLogger, GetLogger, LoggerExists)
+      * Enhanced thread safety with synchronization locks in Logger class
+      * Added public Sinks property to Logger class for inspection
+      * Improved buffering support with optional background thread processing
       Improvements:
-      * Self-contained implementation of ISO 8601 date calculations
-      * Simplified CloseAndFlush method
-      * Maintained all core logging functionality
+
+      Better error handling in FileSink with retry logic for transient IO issues
+      Enhanced message rendering with improved format specifier handling
+      Added fallback error handling for file write operations
+      Improved shutdown handling with enhanced resource disposal
+      Added comprehensive XML documentation comments
+
+      Bug Fixes:
+
+      Fixed issues with initialization of collection properties
+      Enhanced error handling in CloseAndFlush operations
+      Resolved thread safety issues in logging operations
 
       Compatible:
-      * Maintains compatibility with .NET Framework 4.7.2
-      * Applications using only the main logging features require no code changes
-      * Applications using named loggers will need updates
+
+      Maintains compatibility with .NET Framework 4.7.2
+      No breaking changes to core API
+      Backward compatible with applications using RunLog 3.2.0
+
     </releaseNotes>
     <copyright>Copyright 2025</copyright>
     <tags>logging structured-logging diagnostics .NET</tags>
